@@ -1,0 +1,56 @@
+#!/bin/sh
+# shellcheck disable=SC20390
+
+set -o nounset
+
+WORKDIR=${WORKDIR:-${PWD}}
+test -t 0 || read -r WORKDIR
+
+PLATFORM=${PLATFORM:-$(uname -s | tr '[:upper:]' '[:lower:]')}
+
+test -z "${ARCH:-''}" || case $(uname -m) in
+    x86_64)
+        ARCH='amd64';;
+    arm*)
+        ARCH='arm';;
+    *)
+        echo "Unsupported architecture: $(uname -m)" >&2
+        exit 1
+esac
+
+VAULT_VERSION=${VAULT_VERSION:-'0.5.3'}
+VAULT_ARTIFACT_HOST=${VAULT_ARTIFACT_HOST:-'releases.hashicorp.com'}
+VAULT_ARTIFACT_PATH=${VAULT_ARTIFACT_PATH:-"vault/${VAULT_VERSION}/vault_${VAULT_VERSION}_${PLATFORM}_${ARCH}.zip"}
+VAULT_ARTIFACT="https://${VAULT_ARTIFACT_HOST}/${VAULT_ARTIFACT_PATH}"
+
+cleanup() {
+    TARGET=${1:-${TEMPDIR}}
+    test "${NO_CLEANUP:-false}" = false || rm -rf "${TARGET}"
+}
+
+TEMPDIR=${TEMPDIR:-$(mktemp -d -t vault.XXXXXX)}
+# shellcheck disable=SC2064
+trap "cleanup ${TEMPDIR}" HUP INT TERM EXIT
+
+test "${OFFLINE:-false}" = true || wget -O "${TEMPDIR}/vault.zip" "${VAULT_ARTIFACT}"
+
+install -m 755 -d /usr/local/sbin
+unzip -d /usr/local/sbin "${TEMPDIR}/vault.zip"
+
+install -m 644 "${WORKDIR}/etc/vault.json" /etc/vault.json
+
+test "${IGNORE_MISSING_SYSTEMD:-false}" != false || if ! test -d /etc/systemd/system; then
+    cat &>2 <<EOF
+Not Found: /etc/systemd/system
+
+This installation requires systemd, which appears to be missing. You can skip
+this check by setting IGNORE_MISSING_SYSTEMD to a non-false value.
+
+EOF
+    exit 2
+else
+    install -m 755 -d /etc/systemd/system
+    install -m 644 "${WORKDIR}/etc/systemd/system/vault.service" /etc/systemd/system/vault.service
+    install -m 755 -d /etc/default
+    install -m 644 "${WORKDIR}/etc/default/vault" /etc/default/vault
+fi

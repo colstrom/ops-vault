@@ -1,0 +1,8 @@
+#!/bin/sh
+
+set -o nounset
+
+systemctl daemon-reload
+test "${ENABLE:-true}" = false || systemctl enable vault
+test "${START:-true}" = false || systemctl start vault
+test "${RESTART:-true}" = false || systemctl restart vault
